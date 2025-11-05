@@ -44,6 +44,18 @@ public class ReservaService {
 
     @Transactional
     public ReservaResponse create(ReservaRequest request) {
+        if (!request.dataRetirada().isBefore(request.dataEntrega())) {
+            throw new IllegalArgumentException("Data de retirada deve ser anterior à data de entrega");
+        }
+        boolean existeConflito = repository.existsReservaConflitante(
+                request.idEquipamento(),
+                request.dataRetirada(),
+                request.dataEntrega()
+        );
+        if (existeConflito) {
+            throw new IllegalStateException("Já existe uma reserva para este equipamento no período selecionado");
+        }
+
         Reserva reserva = new Reserva();
         reserva.setSala(request.sala());
         reserva.setDataRetirada(request.dataRetirada());
@@ -68,6 +80,14 @@ public class ReservaService {
     public ReservaResponse update(Integer id, ReservaRequest reqAtualizado) {
         return repository.findById(id)
                 .map(reserva -> {
+                    if (reserva.getStatus() != StatusReserva.CRIADA) {
+                        throw new IllegalStateException("Só é possível editar reservas com status CRIADA");
+                    }
+
+                    if (!reqAtualizado.dataRetirada().isBefore(reqAtualizado.dataEntrega())) {
+                        throw new IllegalArgumentException("Datas inválidas");
+                    }
+
                     if (reqAtualizado.idEquipamento() != null && reqAtualizado.idProfessor() != null) {
                         Equipamento e = equipamentoRepository.findById(reqAtualizado.idEquipamento())
                                 .orElseThrow(() -> new RuntimeException("Equipamento não encontrado"));
@@ -90,5 +110,46 @@ public class ReservaService {
     @Transactional
     public void delete(Integer id) {
         repository.deleteById(id);
+    }
+
+    @Transactional
+    public ReservaResponse efetuarRetirada(Integer id) {
+        Reserva reserva = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Reserva não encontrada"));
+
+        if (reserva.getStatus() != StatusReserva.CRIADA) {
+            throw new IllegalStateException("Só é possível retirar reservas com status CRIADA");
+        }
+
+        reserva.retirar();
+
+        Reserva updated = repository.save(reserva);
+        return ReservaMapper.toResponse(updated);
+    }
+
+    @Transactional
+    public ReservaResponse efetuarDevolucao(Integer id) {
+        Reserva reserva = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Reserva não encontrada"));
+
+        if (reserva.getStatus() != StatusReserva.RETIRADA) {
+            throw new IllegalStateException("Só é possível devolver reservas com status RETIRADA");
+        }
+
+        reserva.devolver();
+
+        Reserva updated = repository.save(reserva);
+        return ReservaMapper.toResponse(updated);
+    }
+
+    @Transactional
+    public ReservaResponse cancelarReserva(Integer id) {
+        Reserva reserva = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Reserva não encontrada"));
+
+        reserva.cancelar();
+
+        Reserva updated = repository.save(reserva);
+        return ReservaMapper.toResponse(updated);
     }
 }
